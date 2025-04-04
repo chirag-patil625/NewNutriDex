@@ -49,7 +49,7 @@ const Home = () => {
     { 
       icon: <ShieldCheck className="w-16 h-16 text-[#F50057]" />, 
       title: "Intelligent Health Rating", 
-      description: "Comprehensive algorithm provides nuanced health insights beyond simple metrics.",
+      description: "Smart system analyzes food data to give detailed health information.",
       color: "from-rose-500 to-rose-600"
     },
     { 

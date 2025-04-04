@@ -478,29 +478,6 @@ def result_api(request):
                     'success': False,
                     'error': 'Failed to extract nutrition information'
                 }, status=500)
-
-            # Check for too many null values
-            null_count = sum(
-                1 for value in [
-                    nutrition_result.calories,
-                    nutrition_result.protein,
-                    nutrition_result.fats,
-                    nutrition_result.carbohydrates,
-                    nutrition_result.sugar,
-                    nutrition_result.sodium,
-                    nutrition_result.saturated_fat_100g,
-                    nutrition_result.trans_fat_100g,
-                    nutrition_result.cholesterol_100g
-                ] if value is None or value == 0
-            )
-
-            if null_count >= 5:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'Too many missing values in nutrition data. Please use manual entry for better accuracy.',
-                    'suggest_manual': True
-                }, status=422)  # 422 Unprocessable Entity
-
         except Exception as e:
             return JsonResponse({
                 'success': False,
@@ -652,11 +629,13 @@ def result_api(request):
             'success': True,
             'history_id': history_id,
             'ingredients': {
-            'raw_data': ingredients_list,
-        },
+                'raw_data': ingredients_list,
+                'score': ingredients_score  # Add ingredients score
+            },
             'nutrition': {
-            'data': formatted_nutrition_data,
-        },
+                'data': formatted_nutrition_data,
+                'score': nutrition_score  # Add nutrition score
+            },
             'total_score': total_score,
         'analysis_summary': analysis_summary,  # Add this line
         'timestamp': timezone.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -712,7 +691,8 @@ def get_user_history(request):
                     'total': record.total_result
                 },
                 'nutrition_data': record.nutrition_data,
-                'ingredients_data': record.ingredients_data
+                'ingredients_data': record.ingredients_data,
+                'analysis_summary': record.analysis_summary  # Add this line
             })
         
         return JsonResponse({
@@ -753,8 +733,8 @@ def manual_entry_api(request):
             
             # Load ML models
             BASE_PATH = r"C:\Users\Chira\OneDrive\Desktop\backend\backend\ml_models"
-            vectorizer = load_pickle_file(os.path.join(BASE_PATH, 'tfidf_vectorizer_optimized.pkl'))
-            ingredients_model = load_pickle_file(os.path.join(BASE_PATH, 'ingredient_rating_model_optimized.pkl'))
+            vectorizer = load_pickle_file(os.path.join(BASE_PATH, 'tfidf_vectorizer.pkl'))
+            ingredients_model = load_pickle_file(os.path.join(BASE_PATH, 'random_forest_model.pkl'))
             nutrition_model = load_pickle_file(os.path.join(BASE_PATH, 'chirag_patil.pkl'))
             
             # Vectorize ingredients text
@@ -844,9 +824,28 @@ def manual_entry_api(request):
                 ingredients_data=ingredients_data,
             )
             history_id = history.id
+            
+            # Generate and update analysis summary
+            analysis_summary = generate_analysis_summary(
+                ingredients_list=ingredients_list,
+                nutrition_data=nutrition_data_for_storage,
+                ingredients_score=ingredients_score,
+                nutrition_score=nutrition_score,
+                total_score=total_score
+            )
+            
+            # Update the history record with the summary
+            history.analysis_summary = analysis_summary
+            history.save()
+            
+            logger.info(f"Successfully created history entry with ID: {history_id}")
+            
         except Exception as history_error:
             logger.error(f"Failed to save to history: {str(history_error)}")
-            history_id = None
+            return JsonResponse({
+                'success': False,
+                'error': f'Failed to save results: {str(history_error)}'
+            }, status=500)
 
         # Format data for response
         formatted_nutrition_data = {
@@ -869,8 +868,7 @@ def manual_entry_api(request):
             ingredients_score=ingredients_score,
             nutrition_score=nutrition_score,
             total_score=total_score
-        )   
-            # Update history object with summary
+        )       # Update history object with summary
             if history_id:
                 history = History.objects.get(id=history_id)
                 history.analysis_summary = analysis_summary
@@ -885,9 +883,11 @@ def manual_entry_api(request):
             'history_id': history_id,
             'ingredients': {
                 'raw_data': ingredients_list,
+                'score': ingredients_score  # Add ingredients score
             },
             'nutrition': {
             'data': formatted_nutrition_data,
+            'score': nutrition_score  # Add nutrition score
         },
         'total_score': total_score,
         'analysis_summary': analysis_summary,  # Add this line
